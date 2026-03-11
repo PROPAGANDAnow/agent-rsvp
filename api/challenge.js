@@ -1,11 +1,9 @@
-const crypto = require('crypto');
 const { generateChallenge } = require('../lib/challenges');
-const storage = require('../lib/storage');
+const { createChallengeToken } = require('../lib/token');
 
 const CHALLENGE_TTL = 30; // seconds
 
 module.exports = async function handler(req, res) {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -16,15 +14,10 @@ module.exports = async function handler(req, res) {
   }
 
   const challenge = generateChallenge();
-  const challengeId = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + CHALLENGE_TTL * 1000).toISOString();
 
-  // Store challenge with TTL
-  await storage.set(`challenge:${challengeId}`, {
-    answer: challenge.answer,
-    expiresAt,
-    used: false,
-  }, { ttl: CHALLENGE_TTL + 5 }); // extra 5s buffer for clock drift
+  // Encode the answer into an encrypted token — fully stateless
+  const challengeId = createChallengeToken(challenge.answer, expiresAt);
 
   return res.status(200).json({
     challengeId,

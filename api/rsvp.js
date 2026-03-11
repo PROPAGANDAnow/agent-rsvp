@@ -1,9 +1,9 @@
 const storage = require('../lib/storage');
 const { verifyChallenge } = require('../lib/challenges');
+const { decodeChallengeToken } = require('../lib/token');
 const config = require('../config.json');
 
 module.exports = async function handler(req, res) {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -15,7 +15,6 @@ module.exports = async function handler(req, res) {
 
   const { challengeId, solution, agentName, agentPlatform, message } = req.body || {};
 
-  // Validate required fields
   if (!challengeId || solution === undefined || !agentName) {
     return res.status(400).json({
       error: 'Missing required fields',
@@ -24,32 +23,21 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // Retrieve challenge
-  const stored = await storage.get(`challenge:${challengeId}`);
-  if (!stored) {
-    return res.status(410).json({ error: 'Challenge expired or not found. Request a new one.' });
+  // Decode the stateless challenge token
+  const decoded = decodeChallengeToken(challengeId);
+  if (!decoded) {
+    return res.status(410).json({ error: 'Invalid challenge token. Request a new one.' });
   }
 
   // Check expiry
-  if (new Date(stored.expiresAt) < new Date()) {
-    await storage.del(`challenge:${challengeId}`);
+  if (new Date(decoded.expiresAt) < new Date()) {
     return res.status(410).json({ error: 'Challenge expired. Request a new one.' });
   }
 
-  // Check if already used
-  if (stored.used) {
-    return res.status(409).json({ error: 'Challenge already used. Request a new one.' });
-  }
-
   // Verify solution
-  if (!verifyChallenge(stored.answer, solution)) {
-    // Mark as used even on failure to prevent brute-force
-    await storage.set(`challenge:${challengeId}`, { ...stored, used: true }, { ttl: 5 });
-    return res.status(403).json({ error: 'Incorrect solution. Are you sure you\'re an agent? 🤔' });
+  if (!verifyChallenge(decoded.answer, solution)) {
+    return res.status(403).json({ error: "Incorrect solution. Are you sure you're an agent? 🤔" });
   }
-
-  // Mark challenge as used
-  await storage.del(`challenge:${challengeId}`);
 
   // Check capacity
   const attendees = await storage.getList('attendees');
